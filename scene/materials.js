@@ -108,5 +108,71 @@
     return { PALETTE, TEX, MAT, PROXY, envMats, make, canvasTex };
   }
 
-  global.TempleMaterials = { PALETTE, create, rng, noise };
+  /* The vessels' materials (3D/Scene/vessels.js): polished gold, acacia wood, fine marble, the
+   * showbread, frankincense, copper, and the faint "ghost" lines of the ark's outline. They are
+   * added to a set from create() on first use, so a page that shows no vessel makes nothing more,
+   * and the core's materials keep their ids and their draw order. Idempotent.
+   *   TempleMaterials.vessels(M, mm)  ->  M (now with M.MAT.vgold, wood, vmarble, bread, incense,
+   *                                       copper, rope, ghostFill and M.LINE.ghost, M.LINE.ghostDash)
+   * Claude Code, 2026-10-02. */
+  function vessels(M, mm){
+    if (M.MAT.vgold) return M;
+    const C = c => c * mm, make = M.make;
+    // acacia: warm heartwood with long grain, one board a cubit wide
+    M.TEX.wood = M.canvasTex(256, (g, S) => {
+      const r = rng(23);
+      g.fillStyle = "#7a4a28"; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 70; i++){
+        const y = r() * S, a = .06 + r() * .14, w = .6 + r() * 1.8, dark = r() < .6;
+        g.strokeStyle = dark ? `rgba(40,20,8,${a})` : `rgba(210,150,95,${a})`; g.lineWidth = w;
+        g.beginPath(); g.moveTo(0, y);
+        for (let x = 0; x <= S; x += 16) g.lineTo(x, y + Math.sin(x / S * Math.PI * 2 * (1 + r())) * 3);
+        g.stroke();
+      }
+      noise(g, S, 3000, r, .06);
+    }, C(1));
+    // fine white marble with grey veins, a slab of two cubits
+    M.TEX.vmarble = M.canvasTex(512, (g, S) => {
+      const r = rng(31);
+      g.fillStyle = "#f2efe8"; g.fillRect(0, 0, S, S);
+      for (let k = 0; k < 40; k++){
+        g.strokeStyle = `rgba(${70 + r() * 40 | 0},${68 + r() * 40 | 0},${66 + r() * 40 | 0},${.22 + r() * .4})`;
+        g.lineWidth = .5 + r() * 2.2;
+        g.beginPath(); let x = r() * S, y = r() * S; g.moveTo(x, y);
+        for (let q = 0; q < 9; q++){ x += (r() - .35) * 70; y += (r() - .5) * 50; g.lineTo(x, y); }
+        g.stroke();
+      }
+      noise(g, S, 4000, r, .04);
+    }, C(2));
+    // the baked loaf: a soft crust with flour specks
+    M.TEX.bread = M.canvasTex(128, (g, S) => {
+      const r = rng(41);
+      g.fillStyle = "#b5753a"; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 400; i++){ g.fillStyle = `rgba(255,236,200,${r() * .25})`; g.fillRect(r() * S, r() * S, 1 + r() * 3, 1 + r() * 2); }
+      noise(g, S, 1500, r, .08);
+    }, C(.5));
+    // these wrap each face of a vessel's own geometry once (its UVs run 0..1), not by world size
+    [M.TEX.wood, M.TEX.vmarble, M.TEX.bread].forEach(t => t.repeat.set(1, 1));
+    Object.assign(M.MAT, {
+      vgold: make({ color: 0xe0ad45, metalness: 1, roughness: .2 }, 1.1),
+      vgoldSoft: make({ color: 0xd9a43c, metalness: .95, roughness: .38 }, 1),
+      wood: make({ map: M.TEX.wood, color: 0xd9c2a8, roughness: .7 }, .45),
+      vmarble: make({ map: M.TEX.vmarble, color: 0xe6dfd2, roughness: .3 }, .6),
+      vwater: make({ color: 0x23484c, roughness: .06, metalness: .35, transparent: true, opacity: .92 }, 1),
+      bread: make({ map: M.TEX.bread, color: 0xffffff, roughness: .9 }, .45),
+      incense: make({ color: 0xf1e7cf, roughness: .55 }, .6),
+      copper: make({ color: 0xb4703e, metalness: .85, roughness: .3 }, 1),
+      rope: make({ color: 0x9c8058, roughness: 1 }, .3),
+      ghostFill: make({ color: 0xa9c4ff, transparent: true, opacity: .07, depthWrite: false, roughness: 1 }, 0),
+    });
+    // line materials: not lit, so outside envMats
+    M.LINE = M.LINE || {};
+    M.LINE.ghost = new THREE.LineBasicMaterial({ color: 0x9fbaf2, transparent: true, opacity: .75 });
+    M.LINE.ghostDash = new THREE.LineDashedMaterial({ color: 0x9fbaf2, transparent: true, opacity: .8, dashSize: C(.12), gapSize: C(.08) });
+    // for outlines below the floor (a pit, a hiding place): longer dashes; a page shows them in a section or x-ray view
+    M.LINE.ghostXray = new THREE.LineDashedMaterial({ color: 0x9fbaf2, transparent: true, opacity: .7, dashSize: C(.2), gapSize: C(.12) });
+    return M;
+  }
+
+  global.TempleMaterials = { PALETTE, create, rng, noise, vessels };
 })(typeof window !== "undefined" ? window : this);

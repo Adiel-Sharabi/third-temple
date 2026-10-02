@@ -55,6 +55,7 @@
     tab: "short", reading: false, labels: true, conf: false,
     layers: { walls: true, chambers: true, altar: true, house: true },
     cubit: null, sel: null,
+    view: "overview",            // the nav's section: "overview" (המבנה) or "interior" (פנים ההיכל, the house cut open)
   };
   let D = null;                  // loaded data
   let G3 = null;                 // three.js objects
@@ -176,6 +177,10 @@
       if (open){ openDrawer(null); $(DRAWERS[open]).focus(); return; }
       if (state.reading) setReading(false);
     });
+    // the nav: the overview, or the house cut open
+    document.querySelectorAll(".nav [data-view]").forEach(a => a.addEventListener("click", e => {
+      e.preventDefault(); setMenu(false); setView(a.dataset.view);
+    }));
     // keyboard: choose a component from a list
     $("pick-list").addEventListener("change", e => { if (e.target.value) selectComponent(e.target.value); else clearSelection(); });
     // the system theme, when the viewer has not chosen one
@@ -263,18 +268,29 @@
     ground.rotation.x = -Math.PI / 2; ground.position.y = -OD - 0.05; ground.receiveShadow = true; scene.add(ground);
 
     const MATS = TempleMaterials.create({ mm: L.MM, anisotropy: renderer.capabilities.getMaxAnisotropy() });
-    const root = TempleScene.build(data, { materials: MATS });
+    // the architectural Heichal (3D/Scene/heichal.js); the vessels, when 3D/Scene/vessels.js is loaded,
+    // stand where heichal.js calls the hook
+    const V = window.TempleVessels, hooks = {};
+    if (V) hooks.vessel = (kind, group, at) => {
+      const g = V.build(kind, { materials: MATS }, id => X.dim[id], L.MM);
+      g.position.set(at.x, at.y, at.z); g.rotation.y = at.rotY || 0; group.add(g);
+    };
+    const root = TempleScene.build(data, { materials: MATS, house: "arch", hooks });
     scene.add(root);
     const F = TempleScene.frame(L);
     const U = root.userData;
     const altar = U.components.altar;
     if (altar){ const [ax, ay] = altar.userData.at; fire.position.set(F.PX(ay), X.levels.inner_mm + F.C(14), F.PZ(ax)); }
+    // a warm lamp light by the menorah's place, lit only when the house is open
+    const lamp = new THREE.PointLight(0xffc27a, 0, F.C(60), 1.3);
+    if (U.heichal){ const p = U.heichal.lamp; lamp.position.set(p.x, p.y, p.z); }
+    scene.add(lamp);
 
     // confidence materials, coloured from the theme
     const confMat = {};
     RANK.forEach(k => { confMat[k] = new THREE.MeshStandardMaterial({ roughness: .85, metalness: 0 }); });
 
-    G3 = { renderer, scene, camera, controls, hemi, sun, fire, MATS, root, U, F, confMat, cv, labelEls: [] };
+    G3 = { renderer, scene, camera, controls, hemi, sun, fire, lamp, MATS, root, U, F, confMat, cv, labelEls: [] };
 
     // labels: the core's anchors, as DOM names
     $("labels").innerHTML = "";
@@ -295,13 +311,51 @@
     applyOptions();
     setLighting();
     syncLayers();
+    if (location.hash === "#interior" && U.heichal){ state.view = "interior"; setCut("open"); pressNav(); }
     frameAll();
     initPicking();
     window.addEventListener("resize", onResize);
     controls.addEventListener("change", requestRender);
     window.__temple = { root, camera, controls, select: selectComponent, render: requestRender,   // for headless checks
-      setOption, openDrawer, freeRect, opts: () => Object.assign({}, state.opts) };
+      setOption, openDrawer, freeRect, opts: () => Object.assign({}, state.opts),
+      setView, setCut, renderer, scene, view: () => state.view, moving: () => !!fly };
     requestRender();
+  }
+
+  /* ---------- the nav's sections: the overview, or the house cut open ---------- */
+  function pressNav(){
+    document.querySelectorAll(".nav [data-view]").forEach(a => {
+      if (a.dataset.view === state.view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+  }
+  function setCut(mode){
+    if (!G3 || !G3.U.heichal) return;
+    TempleHeichal.setCut(G3.root, mode);
+    if (state.sel && !shownInScene(G3.U.components[state.sel.id])) clearSelection();
+    G3.renderer.shadowMap.needsUpdate = true; setLighting();
+  }
+  function setView(name){
+    if (!G3 || (name === "interior" && !G3.U.heichal)) return;
+    state.view = name; pressNav();
+    if (name === "interior" && !state.layers.house){ state.layers.house = true; const cb = document.querySelector('[data-layer="house"]'); if (cb) cb.checked = true; syncLayers(); }
+    setCut(name === "interior" ? "open" : "none");
+    flyTo(framePose(false));
+    history.replaceState(null, "", name === "interior" ? "#interior" : location.pathname + location.search);
+    $("live").textContent = name === "interior" ? "פנים ההיכל: הגג והכותל הדרומי הוסרו כדי לראות פנימה" : "מבט־על על המבנה";
+  }
+  /* a smooth flight of the camera and its target; none when the viewer prefers less motion */
+  let fly = null;
+  function flyTo(pose){
+    const cam = G3.camera, ctl = G3.controls;
+    if (reduceMotion.matches){ cam.position.copy(pose.position); ctl.target.copy(pose.target); ctl.update(); requestRender(); return; }
+    fly = { p0: cam.position.clone(), t0: ctl.target.clone(), p1: pose.position, t1: pose.target, start: performance.now(), ms: 1100 };
+    const step = now => {
+      if (!fly) return;
+      const k = Math.min(1, (now - fly.start) / fly.ms), e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      cam.position.lerpVectors(fly.p0, fly.p1, e); ctl.target.lerpVectors(fly.t0, fly.t1, e); ctl.update(); requestRender();
+      if (k < 1) requestAnimationFrame(step); else fly = null;
+    };
+    requestAnimationFrame(step);
   }
 
   function isPickable(id){ return G3.U.pick.some(m => m.userData.component === id); }
@@ -342,6 +396,8 @@
     G3.hemi.intensity = dusk ? .16 : .4;
     G3.MATS.envMats.forEach(m => { m.envMapIntensity = m.userData.env * (dusk ? .2 : .7); });
     G3.fire.intensity = dusk ? 3.2 : 0;
+    // the lamp by the menorah's place: only while the house is open, warmer at night
+    G3.lamp.intensity = G3.U.heichal && G3.U.heichal.cut === "open" ? (dusk ? 1.15 : .4) : 0;
     if (M.ember) M.ember.emissiveIntensity = dusk ? 2.2 : .9;
     if (M.flame) M.flame.emissiveIntensity = dusk ? 3 : 1.6;
     if (M.palm) M.palm.emissiveIntensity = dusk ? .9 : 0;
@@ -408,18 +464,29 @@
      (R seen from the camera's elevation, plus the height) across the free height. keepDir keeps
      the viewer's direction; the target always returns to the court's centre. */
   let lastRect = "";
-  function frameAll(keepDir){
+  function framePose(keepDir){
     const r = viewOffset(), cam = G3.camera;
     lastRect = JSON.stringify(r);
+    const fx = (r.x1 - r.x0) / 2, fy = (r.y1 - r.y0) / 2, k = 1.06 * (r.h / 2) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    const clamp = d => Math.min(G3.controls.maxDistance, Math.max(G3.controls.minDistance, d));
+    const iv = state.view === "interior" && G3.U.heichal && G3.U.heichal.views.interior;
+    if (iv){                                          // the house cut open: a sphere round its rooms
+      const at = new THREE.Vector3(iv.center.x, iv.center.y, iv.center.z);
+      const dir = keepDir ? cam.position.clone().sub(G3.controls.target).normalize() : new THREE.Vector3(...iv.dir).normalize();
+      return { target: at, position: at.clone().addScaledVector(dir, clamp(k * iv.radius / Math.min(fx, fy))) };
+    }
     const box = new THREE.Box3().setFromObject(G3.root), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
     const R = Math.hypot(size.x, size.z) / 2;
     const dir = keepDir ? cam.position.clone().sub(G3.controls.target).normalize() : new THREE.Vector3(540, 500, 680).normalize();
     const up = Math.min(1, Math.abs(dir.y)), Rv = R * up + size.y * Math.sqrt(1 - up * up) / 2;
-    const fx = (r.x1 - r.x0) / 2, fy = (r.y1 - r.y0) / 2;
-    const d = 1.06 * (r.h / 2) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * Math.max(R / fx, Rv / fy);
     const at = new THREE.Vector3(c.x, box.min.y + size.y * .15, c.z);
-    cam.position.copy(at).addScaledVector(dir, Math.min(G3.controls.maxDistance, Math.max(G3.controls.minDistance, d)));
-    G3.controls.target.copy(at); G3.controls.update();
+    return { target: at, position: at.clone().addScaledVector(dir, clamp(k * Math.max(R / fx, Rv / fy))) };
+  }
+  /* frame the current section (the whole court, or the house's rooms) in the free space */
+  function frameAll(keepDir){
+    const pose = framePose(keepDir);
+    fly = null;
+    G3.camera.position.copy(pose.position); G3.controls.target.copy(pose.target); G3.controls.update();
   }
   /* after a layout change (drawer, sheet, reading view, resize or rotation): reframe once the
      panels have finished moving, and only if the free space actually changed */
@@ -719,11 +786,12 @@
     $("methods-body").innerHTML = `
       <div class="m-card"><h3>השיטה המוצגת</h3><b>${esc(active.name_he)}</b><p>${esc(active.text_he)}</p>${citesHTML(active.citations)}</div>
       <p class="note">בתוך השיטה, כל שאלה שהדגם מציג ביותר מדרך אחת אפשר להחליף כאן ולראות מיד בדגם. השיטות ${others.map(m => `״${esc(m.name_he)}״`).join(" ו")} יתווספו בהמשך.</p>
-      <section aria-labelledby="h-opts"><h3 id="h-opts">שאלות פתוחות בדגם</h3>${M.options.map(opt).join("")}
+      <section aria-labelledby="h-opts"><h3 id="h-opts">שאלות פתוחות בדגם</h3>${M.options.map((o, i) =>
+        (o.group === "house" && (i === 0 || M.options[i - 1].group !== "house") ? '<h4 class="opt-group">ההיכל, מבחוץ ומבפנים</h4>' : "") + opt(o)).join("")}
         ${changed ? '<button type="button" class="reset" data-reset>חזרה לברירות המחדל של הדגם</button>' : ""}</section>
-      <section aria-labelledby="h-later"><h3 id="h-later">פנים ההיכל והכלים</h3>
-        <p class="note">המחלוקות האלה יהיו מתגים כאן כשהכלים ייבנו בדגם.</p>
-        <ul class="later">${M.later.map(d => `<li><span class="t"><span>${esc(d.title_he)}</span><span class="soon-tag">יוצג עם הכלים</span></span>` +
+      <section aria-labelledby="h-later"><h3 id="h-later">שאלות שעוד אינן בדגם</h3>
+        <p class="note">המחלוקות האלה יהיו מתגים כאן כשהחלק שלהן ייבנה בדגם.</p>
+        <ul class="later">${M.later.map(d => `<li><span class="t"><span>${esc(d.title_he)}</span><span class="soon-tag">${esc(d.when_he || "יוצג עם הכלים")}</span></span>` +
           `<p>${esc(d.text_he)}</p>${citesHTML(d.citations, d.unstored)}</li>`).join("")}</ul></section>`;
   }
 })();
