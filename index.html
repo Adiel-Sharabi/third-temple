@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="build" content="2026-10-02T06:57:57+03:00">
+<title>המקדש — דגם לימודי</title>
+<meta name="description" content="דגם לימודי תלת־ממדי של המקדש: המבנה, המידות והמקורות שלהן, עם רמת הוודאות של כל מידה.">
+<script>
+/* the theme before first paint: a saved choice, else the system's colour scheme */
+(function(){
+  var t = null;
+  try { t = localStorage.getItem("mikdash-theme"); } catch (e) {}
+  if (t !== "night" && t !== "drawing" && t !== "gallery")
+    t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "night" : "gallery";
+  document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;700&family=Assistant:wght@400;600;700&family=IBM+Plex+Sans+Hebrew:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&family=Bellefair&family=Noto+Serif+Hebrew:wght@400;600&family=Rubik:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css?v=2026-10-02T06:57:57+03:00">
+</head>
+<body>
+<a class="skip" href="#panel">דילוג לפאנל המידע</a>
+
+<header class="top">
+  <div class="brand">
+    <span class="brand-name">המקדש</span>
+    <span class="brand-sub">דגם לימודי</span>
+  </div>
+  <div class="hdr-tools" id="hdr-tools">
+    <nav class="nav" aria-label="אזורי האתר">
+      <a href="#" aria-current="page">המבנה</a>
+      <span class="soon" aria-disabled="true">פנים ההיכל <small>בקרוב</small></span>
+      <span class="soon" aria-disabled="true">הכלים <small>בקרוב</small></span>
+      <span class="soon" aria-disabled="true">העבודות <small>בקרוב</small></span>
+      <span class="soon" aria-disabled="true">מקורות <small>בקרוב</small></span>
+    </nav>
+    <div class="method" id="method">
+      <button type="button" class="method-btn" id="b-method" aria-haspopup="true" aria-expanded="false" aria-controls="method-list">
+        <span class="method-k">שיטה</span><span class="method-name" id="method-name">בית שלישי · Mikdash3</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="method-list" id="method-list" role="radiogroup" aria-label="שיטת השחזור"></div>
+    </div>
+    <div class="themes" role="group" aria-label="ערכת נושא" id="themes">
+      <button type="button" class="swatch" data-theme-pick="night" aria-label="לילה" title="לילה"><span></span></button>
+      <button type="button" class="swatch" data-theme-pick="drawing" aria-label="שרטוט" title="שרטוט"><span></span></button>
+      <button type="button" class="swatch" data-theme-pick="gallery" aria-label="גלריה" title="גלריה"><span></span></button>
+    </div>
+    <div class="m-stamp" id="m-stamp"></div>
+  </div>
+  <div class="hdr-buttons">
+    <button type="button" class="tool-btn" id="b-methods" aria-expanded="false" aria-controls="methods" aria-label="שיטות ושאלות פתוחות" title="שיטות ושאלות פתוחות">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 3v6a6 6 0 0 0 6 6h0a6 6 0 0 1 6 6"/><path d="M18 3v6a6 6 0 0 1-3 5.2"/><circle cx="6" cy="3" r="0.5"/><circle cx="18" cy="3" r="0.5"/></svg>
+      <span class="tool-label">שיטות ושאלות פתוחות</span><span class="tool-short" aria-hidden="true">שיטות</span>
+    </button>
+    <button type="button" class="tool-btn" id="b-layers" aria-expanded="false" aria-controls="layers" aria-label="שכבות" title="שכבות">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg>
+      <span class="tool-label">שכבות</span>
+    </button>
+    <button type="button" class="icon" id="b-menu" aria-label="תפריט" aria-expanded="false" aria-controls="hdr-tools">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="stage" id="stage">
+  <canvas id="cv" aria-label="הדגם התלת־ממדי. גררו לסיבוב, גלגלו לקירוב, לחצו על רכיב לפרטים." tabindex="-1"></canvas>
+  <div class="labels" id="labels" aria-hidden="true"></div>
+  <div class="marker" id="marker" hidden aria-hidden="true"></div>
+  <div class="hover" id="hover" hidden aria-hidden="true"></div>
+  <div class="status" id="status" role="status">טוען את הדגם…</div>
+  <div class="sr-only" id="live" aria-live="polite"></div>
+</main>
+
+<aside class="methods drawer" id="methods" aria-labelledby="methods-title">
+  <div class="drawer-head">
+    <h2 class="drawer-title" id="methods-title" tabindex="-1">שיטות ושאלות פתוחות</h2>
+    <button type="button" class="icon" data-close="methods" aria-label="סגירת שיטות ושאלות פתוחות">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="methods-body"></div>
+</aside>
+
+<aside class="layers" id="layers" aria-labelledby="layers-title">
+  <div class="drawer-head">
+    <h2 class="layers-title" id="layers-title" tabindex="-1">שכבות</h2>
+    <button type="button" class="icon" data-close="layers" aria-label="סגירת השכבות">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <fieldset>
+    <legend>מבנה</legend>
+    <label><input type="checkbox" data-layer="walls" checked> חומות ושערים</label>
+    <label><input type="checkbox" data-layer="chambers" checked> לשכות</label>
+    <label><input type="checkbox" data-layer="altar" checked> מזבח וכבשים</label>
+    <label><input type="checkbox" data-layer="house" checked> ההיכל</label>
+  </fieldset>
+  <fieldset>
+    <legend>מידע</legend>
+    <label><input type="checkbox" id="l-labels" checked> שמות</label>
+    <label title="כל רכיב נצבע לפי המידה הפחות ודאית שלו"><input type="checkbox" id="l-conf"> צביעה לפי ודאות</label>
+  </fieldset>
+  <div class="legend">
+    <div class="legend-title">רמת ודאות</div>
+    <div><span class="dot c-explicit"></span> מפורש במקור</div>
+    <div><span class="dot c-derived"></span> נגזר חשבונית</div>
+    <div><span class="dot c-interpretive"></span> פרשני</div>
+    <div><span class="dot c-assumption"></span> הנחת עבודה</div>
+  </div>
+  <label class="pick-list">בחירת רכיב
+    <select id="pick-list"><option value="">—</option></select>
+  </label>
+</aside>
+
+<aside class="panel" id="panel" aria-label="פאנל מידע" tabindex="-1">
+  <button type="button" class="sheet-handle" id="sheet-handle" aria-label="הרחבת המגירה" aria-expanded="false"><span></span></button>
+  <div class="panel-head">
+    <div class="panel-titles">
+      <div class="crumb" id="crumb">מבט־על</div>
+      <h1 id="p-title">המבנה</h1>
+      <div class="p-sub" id="p-sub">לחצו על רכיב בדגם</div>
+    </div>
+    <button type="button" class="pill-btn" id="b-read" aria-pressed="false">תצוגת קריאה</button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="עומק המידע">
+    <button type="button" role="tab" id="t-short" aria-controls="tab-body" aria-selected="true">בקצרה</button>
+    <button type="button" role="tab" id="t-src" aria-controls="tab-body" aria-selected="false" tabindex="-1">מקורות</button>
+    <button type="button" role="tab" id="t-dims" aria-controls="tab-body" aria-selected="false" tabindex="-1">מידות ושיטות</button>
+  </div>
+  <div class="tab-body" id="tab-body" role="tabpanel" aria-labelledby="t-short" tabindex="0"></div>
+</aside>
+
+<footer class="foot" id="foot">
+  <div class="seg small" role="group" aria-label="שיעור האמה" id="cubits"></div>
+  <span class="disclaimer">שחזור לימודי, לא פסק הלכה</span>
+  <span class="stamp" id="stamp"></span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/environments/RoomEnvironment.js"></script>
+<script src="scene/materials.js?v=2026-10-02T06:57:57+03:00"></script>
+<script src="scene/scene-core.js?v=2026-10-02T06:57:57+03:00"></script>
+<script src="app.js?v=2026-10-02T06:57:57+03:00"></script>
+</body>
+</html>
