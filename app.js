@@ -25,7 +25,27 @@
 
   /* ---------- words ---------- */
   const KIND_HE = { wall: "חומה", gate: "שער", colonnade: "אכסדרה", "pavement-chamber": "לשכה על הרצפה", chamber: "לשכה",
-    kitchen: "חצר פינתית", altar: "מזבח", ramp: "כבש", laver: "כיור", rings: "בית המטבחיים", house: "הבית", level: "מפלס" };
+    kitchen: "חצר פינתית", altar: "מזבח", ramp: "כבש", laver: "כיור", rings: "בית המטבחיים", house: "הבית", level: "מפלס",
+    menorah: "כלי ההיכל", table: "כלי ההיכל", "incense-altar": "כלי ההיכל", "ulam-table-marble": "כלי האולם",
+    "ulam-table-gold": "כלי האולם", "ark-outline": "רקע לתצוגה", "ark-hiding-marker": "רקע לתצוגה" };
+  /* the nav's list of vessels ("הכלים"), by the room they stand in; each flies the camera to it. A
+     component id; the vessels' come from 3D/Scene/vessels.js (TempleVessels.inScene), "rings" is scene-core's.
+     dir: where the camera looks from (x east, y up, z south), chosen on the plan so nothing tall stands
+     between: into the house through its cut-away south side; at the laver from the north, between the
+     house's front and the altar; at the rings from the west, over the open court (the north gate and the
+     altar would hide them from elsewhere); at the marker in the outer court from high above. */
+  const VESSEL_LIST = [
+    { room: "ההיכל (הקודש)", cut: "open", ids: ["vessel-menorah", "vessel-table", "vessel-incense-altar"], dir: [.32, .78, 1] },
+    { room: "האולם", cut: "open", ids: ["vessel-ulam-table-marble", "vessel-ulam-table-gold"], dir: [.32, .78, 1] },
+    { room: "קודש הקודשים", cut: "open", ids: ["vessel-ark-outline"], dir: [.3, .95, 1] },
+    { room: "העזרה", cut: "none", ids: ["vessel-laver", "rings", "vessel-ark-hiding-marker"],
+      dirs: { "vessel-laver": [-.15, 1, -.9], rings: [-.75, 1.35, .2], "vessel-ark-hiding-marker": [.15, 2, .55] },
+      // the marker is a small schematic sign: frame it with the court round it (cubits)
+      minR: { "vessel-ark-hiding-marker": 16 } },
+  ];
+  const dirOf = (entry, id) => (entry.dirs && entry.dirs[id]) || entry.dir;
+  /* the closest the camera may come, by section, in mm (the scale is 1.4 mm a cubit: the menorah is about 4 mm tall) */
+  const MIN_DIST = { overview: 40, interior: 4, vessels: .9 };
   const LAYER_OF = { wall: "walls", gate: "walls", colonnade: "walls", chamber: "chambers", kitchen: "chambers",
     "pavement-chamber": "chambers", altar: "altar", ramp: "altar", laver: "altar", rings: "altar", house: "house" };
   const RANK = ["explicit", "derived", "measured", "interpretive", "assumption", "unknown"];
@@ -55,7 +75,8 @@
     tab: "short", reading: false, labels: true, conf: false,
     layers: { walls: true, chambers: true, altar: true, house: true },
     cubit: null, sel: null,
-    view: "overview",            // the nav's section: "overview" (המבנה) or "interior" (פנים ההיכל, the house cut open)
+    view: "overview",            // the nav's section: "overview" (המבנה), "interior" (פנים ההיכל, the house cut open), "vessels" (הכלים)
+    focus: null,                 // in "vessels": the component id the camera is framed on
   };
   let D = null;                  // loaded data
   let G3 = null;                 // three.js objects
@@ -155,7 +176,7 @@
       if (j != null){ e.preventDefault(); setTab(tabs[j]); $("t-" + tabs[j]).focus(); }
     });
     // the drawers (methods; layers when not docked) open in the info panel's place; the menu on phones
-    Object.keys(DRAWERS).forEach(id => $(DRAWERS[id]).addEventListener("click", () => {
+    Object.keys(DRAWERS).filter(id => id !== "vessels").forEach(id => $(DRAWERS[id]).addEventListener("click", () => {   // the vessels' opens from the nav
       const open = !$(id).classList.contains("open") || (id === "layers" && dockQ.matches);
       openDrawer(open ? id : null);
       if (!open) $(DRAWERS[id]).focus();
@@ -177,9 +198,11 @@
       if (open){ openDrawer(null); $(DRAWERS[open]).focus(); return; }
       if (state.reading) setReading(false);
     });
-    // the nav: the overview, or the house cut open
+    // the nav: the overview, the house cut open, or the list of vessels (a second press closes the list)
     document.querySelectorAll(".nav [data-view]").forEach(a => a.addEventListener("click", e => {
-      e.preventDefault(); setMenu(false); setView(a.dataset.view);
+      e.preventDefault(); setMenu(false);
+      if (a.dataset.view === "vessels" && $("vessels").classList.contains("open")){ openDrawer(null); return; }
+      setView(a.dataset.view);
     }));
     // keyboard: choose a component from a list
     $("pick-list").addEventListener("change", e => { if (e.target.value) selectComponent(e.target.value); else clearSelection(); });
@@ -199,7 +222,7 @@
   }
 
   /* ---------- drawers, the menu and the method list ---------- */
-  const DRAWERS = { methods: "b-methods", layers: "b-layers" };   // drawer id -> its header button
+  const DRAWERS = { methods: "b-methods", layers: "b-layers", vessels: "n-vessels" };   // drawer id -> the control that opens it
   function openDrawer(id){
     Object.keys(DRAWERS).forEach(k => {
       const on = k === id;
@@ -268,58 +291,84 @@
     ground.rotation.x = -Math.PI / 2; ground.position.y = -OD - 0.05; ground.receiveShadow = true; scene.add(ground);
 
     const MATS = TempleMaterials.create({ mm: L.MM, anisotropy: renderer.capabilities.getMaxAnisotropy() });
-    // the architectural Heichal (3D/Scene/heichal.js); the vessels, when 3D/Scene/vessels.js is loaded,
-    // stand where heichal.js calls the hook
-    const V = window.TempleVessels, hooks = {};
-    if (V) hooks.vessel = (kind, group, at) => {
-      const g = V.build(kind, { materials: MATS }, id => X.dim[id], L.MM);
-      g.position.set(at.x, at.y, at.z); g.rotation.y = at.rotY || 0; group.add(g);
-    };
-    const root = TempleScene.build(data, { materials: MATS, house: "arch", hooks });
+    // the architectural Heichal (3D/Scene/heichal.js), and the vessels (3D/Scene/vessels.js): inScene
+    // places each where TempleVessels.layout puts it in the room heichal.js gives, replaces the laver,
+    // and draws the rings in both readings. The build's gate runs this same wiring under Node.
+    const vs = window.TempleVessels ? TempleVessels.inScene(data, { materials: MATS }) : null;
+    const root = TempleScene.build(data, { materials: MATS, house: "arch", hooks: vs ? vs.hooks : {} });
+    if (vs) vs.attach(root);
     scene.add(root);
     const F = TempleScene.frame(L);
     const U = root.userData;
     const altar = U.components.altar;
     if (altar){ const [ax, ay] = altar.userData.at; fire.position.set(F.PX(ay), X.levels.inner_mm + F.C(14), F.PZ(ax)); }
-    // a warm lamp light by the menorah's place, lit only when the house is open
+    // a warm lamp light over the menorah (it follows the menorah's place, kl-vessels-place), and a soft
+    // warm fill in the hall: both lit only when the house is open, and stronger at night
     const lamp = new THREE.PointLight(0xffc27a, 0, F.C(60), 1.3);
     if (U.heichal){ const p = U.heichal.lamp; lamp.position.set(p.x, p.y, p.z); }
     scene.add(lamp);
+    const fill = new THREE.PointLight(0xffdcae, 0, F.C(90), 1.4);
+    if (U.heichal){ const p = U.heichal.views.interior.center; fill.position.set(p.x, p.y + F.C(12), p.z); }
+    scene.add(fill);
+    // the menorah's seven lamps glow: a soft additive halo at each flame, strong at night
+    const glowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffc887, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+    ((U.vessels || {})["vessel-menorah"] || []).forEach(g => g.traverse(o => {
+      if (!o.isMesh || o.material !== MATS.MAT.flame) return;
+      o.geometry.computeBoundingSphere();
+      const s = new THREE.Sprite(glowMat); s.position.copy(o.position); s.position.y += o.geometry.boundingSphere.radius * 2;
+      s.scale.setScalar(o.geometry.boundingSphere.radius * 30); s.renderOrder = 5; s.userData.glow = true;
+      o.parent.add(s);
+    }));
 
     // confidence materials, coloured from the theme
     const confMat = {};
     RANK.forEach(k => { confMat[k] = new THREE.MeshStandardMaterial({ roughness: .85, metalness: 0 }); });
 
-    G3 = { renderer, scene, camera, controls, hemi, sun, fire, lamp, MATS, root, U, F, confMat, cv, labelEls: [] };
+    G3 = { renderer, scene, camera, controls, hemi, sun, fire, lamp, fill, glowMat, MATS, root, U, F, confMat, cv, labelEls: [] };
 
-    // labels: the core's anchors, as DOM names
+    // labels: the core's anchors, as DOM names. A vessel's inside the house shows only when the house is open.
+    const inHouse = o => { for (let p = o; p; p = p.parent) if (p === U.components.house) return true; return false; };
     $("labels").innerHTML = "";
     U.labels.forEach(o => {
       const el = document.createElement("div"); el.className = "lab";
       el.innerHTML = esc(o.userData.label.text) + (o.userData.label.sub ? `<small>${esc(o.userData.label.sub)}</small>` : "");
-      $("labels").appendChild(el); G3.labelEls.push({ o, el });
+      $("labels").appendChild(el); G3.labelEls.push({ o, el, inside: !!o.userData.vessel && inHouse(o) });
     });
-    // the keyboard list of components
+    // the keyboard list of components, grouped by what they are
     const groups = {};
     Object.values(U.components).forEach(c => {
       const u = c.userData; if (!isPickable(u.id)) return;
-      (groups[u.kind] = groups[u.kind] || []).push(u);
+      const k = KIND_HE[u.kind] || u.kind;
+      (groups[k] = groups[k] || []).push(u);
     });
     $("pick-list").innerHTML = `<option value="">—</option>` + Object.keys(groups).map(k =>
-      `<optgroup label="${esc(KIND_HE[k] || k)}">${groups[k].map(u => `<option value="${esc(u.id)}">${esc(u.label_he)}</option>`).join("")}</optgroup>`).join("");
+      `<optgroup label="${esc(k)}">${groups[k].map(u => `<option value="${esc(u.id)}">${esc(u.label_he)}</option>`).join("")}</optgroup>`).join("");
 
     applyOptions();
     setLighting();
     syncLayers();
-    if (location.hash === "#interior" && U.heichal){ state.view = "interior"; setCut("open"); pressNav(); }
+    if (location.hash === "#interior" && U.heichal){ state.view = "interior"; controls.minDistance = MIN_DIST.interior; setCut("open"); pressNav(); }
     frameAll();
     initPicking();
+    renderVessels();
+    $("vessels-body").addEventListener("click", e => { const b = e.target.closest("[data-vessel]"); if (b) flyToVessel(b.dataset.vessel); });
+    if (location.hash === "#vessels") setView("vessels");
     window.addEventListener("resize", onResize);
     controls.addEventListener("change", requestRender);
     window.__temple = { root, camera, controls, select: selectComponent, render: requestRender,   // for headless checks
       setOption, openDrawer, freeRect, opts: () => Object.assign({}, state.opts),
-      setView, setCut, renderer, scene, view: () => state.view, moving: () => !!fly };
+      setView, setCut, renderer, scene, view: () => state.view, moving: () => !!fly,
+      flyToVessel, vesselList: () => VESSEL_LIST.map(r => r.ids).flat(), shownInstance: id => shownContent(compOf(id)) ? compOf(id) : null,
+      selected: () => state.sel && state.sel.id, info: () => state.sel && state.sel.info, clear: clearSelection };
     requestRender();
+  }
+  /* a soft round halo, for the menorah's flames */
+  function glowTexture(){
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const g = c.getContext("2d"), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, "rgba(255,244,214,1)"); r.addColorStop(.18, "rgba(255,206,120,.75)"); r.addColorStop(.5, "rgba(255,150,50,.18)"); r.addColorStop(1, "rgba(255,120,30,0)");
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
   }
 
   /* ---------- the nav's sections: the overview, or the house cut open ---------- */
@@ -331,17 +380,92 @@
   function setCut(mode){
     if (!G3 || !G3.U.heichal) return;
     TempleHeichal.setCut(G3.root, mode);
-    if (state.sel && !shownInScene(G3.U.components[state.sel.id])) clearSelection();
+    if (state.sel && !shownInScene(compOf(state.sel.id))) clearSelection();
     G3.renderer.shadowMap.needsUpdate = true; setLighting();
+  }
+  function showHouseLayer(){
+    if (state.layers.house) return;
+    state.layers.house = true; const cb = document.querySelector('[data-layer="house"]'); if (cb) cb.checked = true; syncLayers();
   }
   function setView(name){
     if (!G3 || (name === "interior" && !G3.U.heichal)) return;
-    state.view = name; pressNav();
-    if (name === "interior" && !state.layers.house){ state.layers.house = true; const cb = document.querySelector('[data-layer="house"]'); if (cb) cb.checked = true; syncLayers(); }
+    if (name === "vessels"){                         // the list of vessels; the camera moves when one is chosen
+      state.view = "vessels"; pressNav(); renderVessels(); openDrawer("vessels");
+      history.replaceState(null, "", "#vessels");
+      return;
+    }
+    state.view = name; state.focus = null; pressNav();
+    if ($("vessels").classList.contains("open")) openDrawer(null);
+    G3.controls.minDistance = MIN_DIST[name];
+    if (name === "interior") showHouseLayer();
+    shadowFocus(null);
     setCut(name === "interior" ? "open" : "none");
     flyTo(framePose(false));
     history.replaceState(null, "", name === "interior" ? "#interior" : location.pathname + location.search);
     $("live").textContent = name === "interior" ? "פנים ההיכל: הגג והכותל הדרומי הוסרו כדי לראות פנימה" : "מבט־על על המבנה";
+  }
+  /* "הכלים": fly to one vessel (or the rings), the house cut open for those inside it */
+  function flyToVessel(id){
+    const entry = VESSEL_LIST.find(r => r.ids.includes(id));
+    if (!G3 || !entry || !compOf(id)) return;
+    state.view = "vessels"; state.focus = id; pressNav();
+    G3.controls.minDistance = MIN_DIST.vessels;
+    if (entry.cut === "open") showHouseLayer();
+    setCut(entry.cut);
+    openDrawer(null);                                 // the info panel takes the list's place
+    selectComponent(id);
+    const pose = framePose(false);
+    shadowFocus(pose.target, Math.max(12, pose.radius * 6));
+    flyTo(pose);
+    history.replaceState(null, "", "#vessels");
+    $("live").textContent = `${compOf(id).userData.label_he}, ${entry.room}`;
+  }
+
+  /* ---------- the vessels' instances: one per placement, the options show at most one ---------- */
+  function compOf(id){
+    const list = G3.U.vessels && G3.U.vessels[id];
+    return list ? (list.find(shownContent) || list[0]) : G3.U.components[id];
+  }
+  function allComps(){
+    const out = Object.values(G3.U.components);
+    Object.values(G3.U.vessels || {}).forEach(l => l.forEach(g => { if (!out.includes(g)) out.push(g); }));
+    return out;
+  }
+  /* shown, and something of it drawn (an empty reading, like the ark's "stone only", draws nothing) */
+  function shownContent(c){
+    if (!c || !shownInScene(c)) return false;
+    let any = false;
+    c.traverse(o => { if (!any && (o.isMesh || o.isLine) && o.material !== G3.MATS.PROXY && shownInScene(o)) any = true; });
+    return any;
+  }
+  /* the named group a component stands in (a court, or a room of the house), for the crumb */
+  function placeOf(c){ for (let p = c.parent; p; p = p.parent) if (p.userData && p.userData.label_he) return p; return null; }
+  /* the sphere round what shows of a component: its centre and radius, mm */
+  function focusSphere(id){
+    const c = compOf(id); if (!c) return null;
+    const box = new THREE.Box3();
+    c.traverse(o => { if ((o.isMesh || o.isLine) && o.material !== G3.MATS.PROXY && !o.userData.glow && shownInScene(o)) box.expandByObject(o); });
+    if (box.isEmpty()){ const p = c.getWorldPosition(new THREE.Vector3()); return { center: p, radius: G3.F.C(3) }; }
+    const s = box.getBoundingSphere(new THREE.Sphere());
+    return { center: s.center, radius: Math.max(s.radius, G3.F.C(.8)) };
+  }
+  /* the sun's shadow: the whole court, or a tight box round a close-up so small vessels get sharp shadows */
+  const SUN = new THREE.Vector3(-300, 560, 330);
+  function shadowFocus(center, half){
+    const s = G3.sun, cam = s.shadow.camera, d = SUN.clone().normalize();
+    if (!center){ s.position.copy(SUN); s.target.position.set(0, 0, 0); Object.assign(cam, { left: -400, right: 400, top: 400, bottom: -400, near: 50, far: 1600 }); s.shadow.normalBias = .25; }
+    else {
+      s.target.position.copy(center); s.position.copy(center).addScaledVector(d, 600);
+      Object.assign(cam, { left: -half, right: half, top: half, bottom: -half, near: 300, far: 900 }); s.shadow.normalBias = Math.max(.004, half * .0006);
+    }
+    s.target.updateMatrixWorld(); cam.updateProjectionMatrix(); G3.renderer.shadowMap.needsUpdate = true;
+  }
+  /* the lamp light over the menorah that shows */
+  function placeLamp(){
+    const list = (G3.U.vessels || {})["vessel-menorah"]; if (!list) return;
+    const m = list.find(shownContent); if (!m) return;
+    const f = focusSphere("vessel-menorah");
+    G3.lamp.position.set(f.center.x, f.center.y + f.radius * 1.6, f.center.z + f.radius * .6);
   }
   /* a smooth flight of the camera and its target; none when the viewer prefers less motion */
   let fly = null;
@@ -363,7 +487,9 @@
 
   function applyOptions(){
     TempleScene.applyOptions(G3.root, state.opts);
+    placeLamp();
     G3.renderer.shadowMap.needsUpdate = true;
+    if ($("vessels").classList.contains("open")) renderVessels();
   }
   function setOption(k, val){
     if (state.opts[k] === val) return;
@@ -386,7 +512,7 @@
     Object.values(G3.U.components).forEach(c => {
       const layer = LAYER_OF[c.userData.kind]; if (layer) c.visible = state.layers[layer];
     });
-    if (state.sel && !shownInScene(G3.U.components[state.sel.id])) clearSelection();
+    if (state.sel && !shownInScene(compOf(state.sel.id))) clearSelection();
     G3.renderer.shadowMap.needsUpdate = true; hideHover(); requestRender();
   }
 
@@ -394,10 +520,16 @@
     const dusk = token("--scene-light") === "dusk", M = G3.MATS.MAT;
     G3.sun.intensity = dusk ? .32 : 1.55; G3.sun.color.set(dusk ? 0x9fb4ff : 0xfff0d6);
     G3.hemi.intensity = dusk ? .16 : .4;
-    G3.MATS.envMats.forEach(m => { m.envMapIntensity = m.userData.env * (dusk ? .2 : .7); });
+    // polished metal shows only what it reflects: the vessels' gold and copper keep more of the
+    // environment at night, or they read as dark bronze in the lamplit house
+    const VM = ["vgold", "vgoldSoft", "copper"].map(k => M[k]).filter(Boolean);
+    G3.MATS.envMats.forEach(m => { m.envMapIntensity = m.userData.env * (VM.includes(m) ? (dusk ? .6 : .85) : (dusk ? .2 : .7)); });
     G3.fire.intensity = dusk ? 3.2 : 0;
-    // the lamp by the menorah's place: only while the house is open, warmer at night
-    G3.lamp.intensity = G3.U.heichal && G3.U.heichal.cut === "open" ? (dusk ? 1.15 : .4) : 0;
+    // the lamp over the menorah and the warm fill in the hall: only while the house is open, warmer at night
+    const open = G3.U.heichal && G3.U.heichal.cut === "open";
+    G3.lamp.intensity = open ? (dusk ? 1.15 : .4) : 0;
+    G3.fill.intensity = open ? (dusk ? .45 : .18) : 0;
+    G3.glowMat.opacity = dusk ? 1 : .35;
     if (M.ember) M.ember.emissiveIntensity = dusk ? 2.2 : .9;
     if (M.flame) M.flame.emissiveIntensity = dusk ? 3 : 1.6;
     if (M.palm) M.palm.emissiveIntensity = dusk ? .9 : 0;
@@ -421,11 +553,12 @@
     const col = { explicit: "--c-explicit", derived: "--c-derived", measured: "--c-derived", interpretive: "--c-interp", assumption: "--c-assume", unknown: "--c-assume" };
     RANK.forEach(k => { const hex = token(col[k]) || "#888888"; G3.confMat[k].color.set(hex).convertSRGBToLinear(); G3.confMat[k].opacity = 1; });
     if (coloursOnly !== true){
-      Object.values(G3.U.components).forEach(c => {
+      allComps().forEach(c => {                       // a vessel comes after the room it stands in: its own colour wins
         if (c.userData.kind === "level") return;
         const m = G3.confMat[weakest(c.userData.dims)];
         c.traverse(o => {
-          if (!o.isMesh || o.material === G3.MATS.PROXY) return;
+          // the click boxes, and see-through things (the ark's outline, water, flames) keep their own look
+          if (!o.isMesh || o.material === G3.MATS.PROXY || (o.userData.mat0 || o.material).transparent) return;
           if (!o.userData.mat0) o.userData.mat0 = o.material;
           o.material = state.conf ? m : o.userData.mat0;
         });
@@ -440,7 +573,7 @@
     const s = $("stage").getBoundingClientRect(), w = s.width, h = s.height, pad = 8;
     const docked = dockQ.matches;
     // the info panel's slot: the panel itself, or a drawer open over it
-    const slot = ["panel", "methods", "layers"].map($).filter(el => shown(el) && !(el.id === "layers" && docked)).map(el => el.getBoundingClientRect());
+    const slot = ["panel", "methods", "vessels", "layers"].map($).filter(el => shown(el) && !(el.id === "layers" && docked)).map(el => el.getBoundingClientRect());
     const f = shown($("foot")) ? $("foot").getBoundingClientRect() : null, foot = f && f.height ? f : null;
     if (sheetQ.matches){
       let top = Math.min(s.bottom, ...slot.map(r => r.top));
@@ -469,6 +602,13 @@
     lastRect = JSON.stringify(r);
     const fx = (r.x1 - r.x0) / 2, fy = (r.y1 - r.y0) / 2, k = 1.06 * (r.h / 2) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
     const clamp = d => Math.min(G3.controls.maxDistance, Math.max(G3.controls.minDistance, d));
+    const fv = state.view === "vessels" && state.focus && focusSphere(state.focus);
+    if (fv){                                          // one vessel: its sphere, a little room round it, from its room's side
+      const entry = VESSEL_LIST.find(r => r.ids.includes(state.focus));
+      if (entry.minR && entry.minR[state.focus]) fv.radius = Math.max(fv.radius, G3.F.C(entry.minR[state.focus]));
+      const dir = keepDir ? cam.position.clone().sub(G3.controls.target).normalize() : new THREE.Vector3(...dirOf(entry, state.focus)).normalize();
+      return { target: fv.center, position: fv.center.clone().addScaledVector(dir, clamp(k * fv.radius * 1.25 / Math.min(fx, fy))), radius: fv.radius };
+    }
     const iv = state.view === "interior" && G3.U.heichal && G3.U.heichal.views.interior;
     if (iv){                                          // the house cut open: a sphere round its rooms
       const at = new THREE.Vector3(iv.center.x, iv.center.y, iv.center.z);
@@ -513,6 +653,10 @@
     pending = false;
     resize(false);
     const moved = G3.controls.update();
+    // the near and far planes follow the camera's distance: a close-up of a 4 mm menorah needs a
+    // near plane of hundredths of a mm, the whole court 5 mm (and depth precision stays the same)
+    const cam = G3.camera, dist = cam.position.distanceTo(G3.controls.target), near = Math.min(5, Math.max(.02, dist / 200));
+    if (Math.abs(near - cam.near) > cam.near * .04){ cam.near = near; cam.far = Math.max(4000, dist * 4); cam.updateProjectionMatrix(); }
     G3.renderer.render(G3.scene, G3.camera);
     placeLabels(); placeMarker();
     if (moved) requestRender();
@@ -528,7 +672,7 @@
     G3.labelEls.map(l => { l.o.getWorldPosition(p); return Object.assign({ l }, project(p)); })
       .sort((a, b) => a.z - b.z)
       .forEach(({ l, x, y, z }) => {
-        if (!shownInScene(l.o)){ l.el.style.display = "none"; return; }
+        if (!shownInScene(l.o) || (l.inside && !(G3.U.heichal && G3.U.heichal.cut === "open"))){ l.el.style.display = "none"; return; }
         y -= 9;
         l.el.style.display = "";                        // measured while shown: a hidden label has no width
         const bw = l.el.offsetWidth || 90, bh = l.el.offsetHeight || 22;
@@ -552,8 +696,9 @@
       const r = cv.getBoundingClientRect();
       ptr.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ptr, G3.camera);
-      const live = G3.U.pick.filter(shownInScene);
-      return ray.intersectObjects(live, false)[0] || null;
+      // three.js raycasts hidden objects too: a click box counts only if it and every group above it
+      // show (an option's other reading, a cut-away wall, a layer turned off, a vessel moved elsewhere)
+      return ray.intersectObjects(G3.U.pick, false).find(h => shownInScene(h.object)) || null;
     };
     let down = null, hoverReq = null;
     cv.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
@@ -577,7 +722,7 @@
   }
   function keyDim(u){ return (u.dims || []).map(id => D.DIM[id]).find(Boolean) || null; }
   function showHover(id, x, y){
-    const c = G3.U.components[id]; if (!c) return;
+    const c = compOf(id); if (!c) return;
     const u = c.userData, e = keyDim(u), el = $("hover"), s = $("stage").getBoundingClientRect();
     el.innerHTML = `<b>${esc(u.label_he)}</b>` + (e ? `<span>${esc(valueText(e))}</span><span class="dot c-${esc(e.confidence)}" title="${esc(CONF_HE[e.confidence] || "")}"></span>` : "");
     el.style.left = (x - s.left) + "px"; el.style.top = (y - s.top) + "px"; el.hidden = false;
@@ -585,11 +730,14 @@
   function hideHover(){ $("hover").hidden = true; }
 
   function selectComponent(id, mesh){
-    const c = G3.U.components[id]; if (!c) return;
-    if (!mesh || !shownInScene(mesh)) mesh = G3.U.pick.find(m => m.userData.component === id && shownInScene(m)) || G3.U.pick.find(m => m.userData.component === id);
+    const c = compOf(id); if (!c) return;
+    // chosen by name (the list, a nav item): the component's own click box first, not a part's (the ulam's, not its pillar's)
+    const mine = m => m.userData.component === id;
+    if (!mesh || !shownInScene(mesh)) mesh = G3.U.pick.find(m => mine(m) && shownInScene(m) && m.userData.info && m.userData.info.name === c.userData.label_he)
+      || G3.U.pick.find(m => mine(m) && shownInScene(m)) || G3.U.pick.find(mine);
     const box = new THREE.Box3();
-    c.traverse(o => { if (o.isMesh && o.material !== G3.MATS.PROXY && shownInScene(o)) box.expandByObject(o); });
-    if (box.isEmpty() && mesh) box.setFromObject(mesh);
+    c.traverse(o => { if (o.isMesh && o.material !== G3.MATS.PROXY && !(o.material && o.material.transparent) && shownInScene(o)) box.expandByObject(o); });
+    if (box.isEmpty() && mesh && shownInScene(mesh)) box.setFromObject(mesh);   // nothing drawn (e.g. "stone only"): no marker
     const top = box.isEmpty() ? null : new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
     state.sel = { id, info: mesh ? mesh.userData.info : null, top };
     $("pick-list").value = id;
@@ -665,8 +813,8 @@
         : `<p class="note">בחרו רכיב בדגם כדי לראות ${state.tab === "src" ? "את המקורות שעליהם הוא בנוי" : "את טבלת המידות שלו"}.</p>`;
       return;
     }
-    const c = G3.U.components[state.sel.id], u = c.userData, info = state.sel.info || {};
-    const court = c.parent && c.parent.userData && c.parent.userData.label_he;
+    const c = compOf(state.sel.id), u = c.userData, info = state.sel.info || {};
+    const at = placeOf(c), court = at && at.userData.label_he;
     $("crumb").textContent = ["מבט־על", court && court !== u.label_he ? court : null, u.label_he].filter(Boolean).join(" / ");
     $("p-title").textContent = u.label_he;
     $("p-sub").textContent = info.name && info.name !== u.label_he ? info.name : (KIND_HE[u.kind] || "");
@@ -685,8 +833,11 @@
     if (m != null) stats.push([metresText(m).replace(" מ׳", ""), `מטר, באמה של ${state.cubit.cm} ס״מ`]);
     const noted = dims.find(d => d.note_he), note = noted && noted.note_he;
     const basis = (info.src || []).map(s => `<li><span class="tag ${esc(s.tag)}">${esc(TAG_HE[s.tag] || s.tag)}</span><span>${esc(s.text)}</span></li>`).join("");
+    // the click text's own rows: they follow the reading shown (e.g. the rings' count and rows, kl-rings)
+    const facts = (info.rows || []).map(r => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join("");
     return (note ? `<p>${noted === e ? "" : `<b>${esc(noted.name_he)}:</b> `}${esc(note)}</p>` : `<p>${esc(KIND_HE[u.kind] || "")}. המידות והמקורות בלשוניות שליד.</p>`) +
       (stats.length ? `<div class="stats">${stats.map(s => `<div><b>${esc(s[0])}</b><span>${esc(s[1])}</span></div>`).join("")}</div>` : "") +
+      (facts ? `<dl class="facts">${facts}</dl>` : "") +
       (basis ? `<div class="basis"><h3>מה בדגם מבוסס על מקור, ומה נוסף</h3><ul>${basis}</ul></div>` : "");
   }
 
@@ -732,10 +883,12 @@
   }
 
   /* ---------- methods and open options (data/methods.json) ---------- */
-  /* the open options whose parts this component carries (scene-core's userData.tags) */
+  /* the open options this component's parts carry (userData.tags), and, for a vessel, those that
+     place it (its wrapper's kl-* tags) and the room's readings it stands on */
   function optionsOf(id){
-    const keys = new Set(), c = G3 && G3.U.components[id];
-    if (c) c.traverse(o => { if (o.userData.tags) Object.keys(o.userData.tags).forEach(k => keys.add(k)); });
+    const keys = new Set(), c = G3 && compOf(id);
+    const add = o => { if (o.userData.tags) Object.keys(o.userData.tags).forEach(k => keys.add(k)); };
+    if (c){ c.traverse(add); if (G3.U.vessels && G3.U.vessels[id]) for (let p = c.parent; p; p = p.parent) add(p); }
     return D.methods.options.filter(o => keys.has(o.key));
   }
   /* citations in the info panel's style: primary texts link to Sefaria, secondary works to their
@@ -769,6 +922,30 @@
     $("method-name").textContent = active.short_he; $("b-method").title = active.name_he;
     $("b-method").setAttribute("aria-label", "שיטת השחזור: " + active.name_he);
   }
+  const GROUP_HE = { house: "ההיכל, מבחוץ ומבפנים", vessels: "הכלים" };   // methods.json / vessels-options.json "group"
+  /* the nav's list of vessels: by room, each with its first click row, and a note when the options hide it */
+  function renderVessels(){
+    if (!G3 || !D) return;
+    const name = k => { const o = D.methods.options.find(x => x.key === k); return o ? o.question_he : k; };
+    $("vessels-body").innerHTML = `<p class="note">בחרו כלי: המצלמה עוברת אליו, ולכלים שבתוך הבית — הבית נפתח. בפאנל המידע: מידותיו, מקורותיו והשאלות הפתוחות בו.</p>` +
+      VESSEL_LIST.map(r => {
+        const items = r.ids.filter(id => G3.U.components[id]).map(id => {
+          const c = compOf(id), mine = m => m.userData.component === id && m.userData.info;
+          const pick = G3.U.pick.find(m => mine(m) && shownInScene(m)) || G3.U.pick.find(mine);
+          const row = pick && pick.userData.info.rows && pick.userData.info.rows[0];
+          let off = "";
+          if (!shownContent(c)){                      // which options hide it: those that place it, or its own readings
+            const keys = new Set();
+            for (let p = c; p; p = p.parent){ const t = p.userData.tags; if (t) Object.entries(t).forEach(([k, v]) => { if (state.opts[k] !== v) keys.add(k); }); }
+            if (!keys.size) c.traverse(o => { if (o.userData.tags) Object.keys(o.userData.tags).forEach(k => keys.add(k)); });
+            off = `<span class="v-off">לא מוצג בבחירות הנוכחיות — ראו ${[...keys].map(k => `״${esc(name(k))}״`).join(", ")}</span>`;
+          }
+          return `<li><button type="button" class="v-item" data-vessel="${esc(id)}" aria-current="${state.focus === id}"><b>${esc(c.userData.label_he)}</b>` +
+            (row ? `<span>${esc(row[0])}: ${esc(row[1])}</span>` : "") + off + `</button></li>`;
+        }).join("");
+        return `<section class="v-place" aria-label="${esc(r.room)}"><h3>${esc(r.room)}</h3><ul class="v-list">${items}</ul></section>`;
+      }).join("");
+  }
   function renderMethods(){
     const M = D.methods, active = M.methods.find(m => m.status === "active"), others = M.methods.filter(m => m !== active);
     const changed = M.options.some(o => state.opts[o.key] !== o.default);
@@ -787,11 +964,11 @@
       <div class="m-card"><h3>השיטה המוצגת</h3><b>${esc(active.name_he)}</b><p>${esc(active.text_he)}</p>${citesHTML(active.citations)}</div>
       <p class="note">בתוך השיטה, כל שאלה שהדגם מציג ביותר מדרך אחת אפשר להחליף כאן ולראות מיד בדגם. השיטות ${others.map(m => `״${esc(m.name_he)}״`).join(" ו")} יתווספו בהמשך.</p>
       <section aria-labelledby="h-opts"><h3 id="h-opts">שאלות פתוחות בדגם</h3>${M.options.map((o, i) =>
-        (o.group === "house" && (i === 0 || M.options[i - 1].group !== "house") ? '<h4 class="opt-group">ההיכל, מבחוץ ומבפנים</h4>' : "") + opt(o)).join("")}
+        (o.group && GROUP_HE[o.group] && (i === 0 || M.options[i - 1].group !== o.group) ? `<h4 class="opt-group">${esc(GROUP_HE[o.group])}</h4>` : "") + opt(o)).join("")}
         ${changed ? '<button type="button" class="reset" data-reset>חזרה לברירות המחדל של הדגם</button>' : ""}</section>
       <section aria-labelledby="h-later"><h3 id="h-later">שאלות שעוד אינן בדגם</h3>
         <p class="note">המחלוקות האלה יהיו מתגים כאן כשהחלק שלהן ייבנה בדגם.</p>
-        <ul class="later">${M.later.map(d => `<li><span class="t"><span>${esc(d.title_he)}</span><span class="soon-tag">${esc(d.when_he || "יוצג עם הכלים")}</span></span>` +
+        <ul class="later">${M.later.map(d => `<li><span class="t"><span>${esc(d.title_he)}</span><span class="soon-tag">${esc(d.when_he || "בהמשך")}</span></span>` +
           `<p>${esc(d.text_he)}</p>${citesHTML(d.citations, d.unstored)}</li>`).join("")}</ul></section>`;
   }
 })();

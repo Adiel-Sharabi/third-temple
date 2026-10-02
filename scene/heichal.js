@@ -23,10 +23,14 @@
  * storey's plan cut, o: shown only when open). "open" hides s, t and a: a dollhouse view.
  * setCut shows or hides those groups; it never touches the option tags, which sit one level down.
  *
- * Vessels are not built here. hooks.vessel(kind, group, {x, y, z, rotY}) is called at each place
- * the sources give (world mm, the scene's frame; rotY 0 = the vessel's local +X points east). A
- * placement that depends on a vessels option (kl-*) gets its own group tagged with it, and only
- * when the hook is given; without a hook nothing is drawn and no kl-* tag exists.
+ * Vessels are not built or placed here. hooks.vessel(kind, group, {x, y, z, rotY, plan, frame}) is
+ * called once per room a vessel stands in, with the origin of that room's frame (world mm, the
+ * scene's frame; rotY 0 = the frame's +x points east): "heichal" (on the floor at the middle of the
+ * Holy's west end), "ulam" (on the floor at the middle of the Heichal's doorway, on the ulam side) or
+ * "kodesh-kodashim" (on the floor under the foundation stone's centre; the ark's outline is raised by
+ * the stone's height in vessels.js). Where in the room, and how that depends on the
+ * vessels' own options (kl-*), is 3D/Scene/vessels.js's TempleVessels.layout. The group carries
+ * only the house's own tags; without a hook nothing is drawn.
  *
  * Claude Code (sub-agent), 2026-10-02. Claim: Coordination/Claims/claude-code--web-exhibit-build.md.
  */
@@ -66,6 +70,7 @@
     lulin: 1,             // the openings over the Holy of Holies, side
     hatch: 1.2,           // a cell's opening to the cell above it, side
     lesenePitch: 8,
+    ledge: .25,           // how far a ledge (rovad) of the ulam's walls stands out (hk-ulam-ledge: not given)
   };
 
   /* The options this file builds, in the order of their choices in Web/site/methods.json. */
@@ -91,9 +96,8 @@
     "hk-mesibah": ["stairs", "ramp"],
     "hk-roof-edge": ["iron", "gold", "ryehuda"],
     "hk-exterior": ["white", "gold"],
+    "hk-ulam-ledge": ["rambam", "none"],
   };
-  /* the vessels' options a placement depends on (Web/site/methods.json, kl-*: the vessels' file) */
-  const KL = { place: ["inner-third", "from-outer-third"], ulamTables: ["marble-north", "marble-south"] };
   const combos = keys => keys.reduce((acc, k) => acc.flatMap(o => OPT[k].map(v => Object.assign({}, o, { [k]: v }))), [{}]);
 
   /* ---------- materials: added to the scene's own set once, through its factory ---------- */
@@ -457,7 +461,8 @@
       target(ph, o && o.only ? [o.only] : []).add(ob); U.labels.push(ob); return ob;
     }
     const W = (x, y, h) => ({ x: PX(y), y: Yw(h), z: PZ(x) });
-    const vessel = (kind, ph, x, y, h) => { if (hooks.vessel) hooks.vessel(kind, ph.g, Object.assign(W(x, y, h), { rotY: 0, plan: [x, y] })); };
+    // a vessel's room: its frame's origin (plan x, y; height h); TempleVessels.layout places it in there
+    const vessel = (kind, ph, x, y, h, frame) => { if (hooks.vessel) hooks.vessel(kind, ph.g, Object.assign(W(x, y, h), { rotY: 0, plan: [x, y], frame })); };
 
     const ULAM = component("house-ulam", "האולם והחזית");
     const HALL = component("house-heichal", "ההיכל (הקודש)");
@@ -531,6 +536,36 @@
       box(ph, mat, xF0, xF0 + WW, yUi, yU0, FL, RF); box(ph, mat, xF1 - WW, xF1, yUi, yU0, FL, RF);
       box(ph, mat, xF0 + WW, bx0, yUi, yUi + WW, FL, RF); box(ph, mat, bx1, xF1 - WW, yUi, yUi + WW, FL, RF);
     });
+    let LEDGES = null;
+    /* the ledges round the ulam's walls (Rambam, Beit HaBechira 4:9): "one cubit smooth and a ledge
+       of three, and a cubit smooth and a ledge of three, up to the top... and the upper ledge was four".
+       Rambam gives Middot 3:6's numbers (1, 3, the upper 4) to these ledges; the ids are those. How far a
+       ledge stands out, and which faces carry them, are not given: here schematic bands on the ulam's
+       outer faces (east, the two ends, the backs of the wings), ART.ledge proud, from the floor up to the
+       roof line. hk-ulam-ledge "none" shows nothing. */
+    {
+      const sm = dim("hk-ulam-step-tread-middot"), lb = dim("hk-ulam-landing"), lt = dim("hk-ulam-top-landing"), p = ART.ledge;
+      const n = Math.floor((RF - FL - sm - lt) / (sm + lb) + EPS), bands = [];
+      for (let k = 0; k < n; k++) bands.push([FL + k * (sm + lb) + sm, FL + (k + 1) * (sm + lb)]);
+      bands.push([FL + n * (sm + lb) + sm, FL + n * (sm + lb) + sm + lt]);              // the upper ledge, four
+      // a ledge is a course of masonry: the warmer ivory ashlar, so it reads against the white wall, with a plaster top
+      const L = { "hk-ulam-ledge": "rambam" }, mat = { top: "cap", side: "stone" };
+      combos(["hk-ulam-opening", "hk-exterior"]).forEach(o => {
+        const ph = part(ULAM, "ledges-face", Object.assign({}, L, o)), [ow, oh] = OPEN[o["hk-ulam-opening"]];
+        const m = o["hk-exterior"] === "gold" ? { top: "cap", side: "gold" } : mat;
+        bands.forEach(([h0, h1]) => holed(ph, m, xF0, xF1, E, E + p, h0, h1, [[AX - ow / 2, AX + ow / 2, FL, FL + oh]], "x", { noA: true }));
+      });
+      {
+        const ph = part(ULAM, "ledges-ends", L);
+        bands.forEach(([h0, h1]) => { box(ph, mat, xF1, xF1 + p, yUi - p, E + p, h0, h1); box(ph, mat, xF0 - p, xF0, yUi - p, E + p, h0, h1); });
+      }
+      combos(["hk-plan"]).forEach(o => {
+        const ph = part(ULAM, "ledges-wings", Object.assign({}, L, o)), [bx0, bx1] = BODY[o["hk-plan"]];
+        bands.forEach(([h0, h1]) => { box(ph, mat, xF0, bx0, yUi - p, yUi, h0, h1); box(ph, mat, bx1, xF1, yUi - p, yUi, h0, h1); });
+      });
+      part(ULAM, "ledges", { "hk-ulam-ledge": "none" });
+      LEDGES = { bands, smooth: sm, ledge: lb, top: lt, proud: p };     // root.userData.heichal.ledges, for a page's checks
+    }
     // the ulam's ceiling: the upper storey's ceiling height (an assumption: the sources give none)
     {
       const ph = part(ULAM, "ceiling");
@@ -663,13 +698,12 @@
           for (let i = 0; i < 8; i++){ const a = i / 8 * Math.PI * 2; mesh(ph, "gold", point, M4(x + Math.sin(a) * 1.15, yU0 - .4, H2 - 8 + Math.cos(a) * 1.15, 0, -a, 0), x, H2 - 8); }
         });
       }
-      // the two tables inside the ulam, at the door of the house (Menachot 11:7): the vessels' own option says which side
-      if (hooks.vessel) KL.ulamTables.forEach(v => {
-        const tp = part(ULAM, "tables", { "hk-ulam-furnishings": "second-temple", "kl-ulam-tables": v });
-        const north = v === "marble-north" ? 1 : -1, y = yUi + 2.5;
-        vessel("ulam-table-marble", tp, AX + north * 9, y, FL);
-        vessel("ulam-table-gold", tp, AX - north * 9, y, FL);
-      });
+      // the two tables inside the ulam, at the door of the house (Menachot 11:7): which side is the vessels' own option
+      if (hooks.vessel){
+        const tp = part(ULAM, "tables", { "hk-ulam-furnishings": "second-temple" });
+        vessel("ulam-table-marble", tp, AX, yUi, FL, "ulam");
+        vessel("ulam-table-gold", tp, AX, yUi, FL, "ulam");
+      }
     }
 
     /* ============ the steps: twelve, half a cubit each, rising the atum (Middot 3:6) ============ */
@@ -938,10 +972,9 @@
       const ph = part(KK, "even-shetiya", o), [x0, x1, y0, y1] = stoneAt(o);
       box(ph, "hkRock", x0, x1, y0, y1, FL, FL + ES_H * .6, { noP: true });
       box(ph, "hkRock", x0 + .25, x1 - .25, y0 + .2, y1 - .2, FL, FL + ES_H, { noP: true });
-      if (hooks.vessel){
-        const ap = part(KK, "ark", Object.assign({ "kl-ark": "ark-ghost" }, o));
-        vessel("ark-outline", ap, (x0 + x1) / 2, (y0 + y1) / 2, FL + ES_H);
-      }
+      // the ark's place, on the stone: what shows there (nothing, the outline, the hiding places) is kl-ark and kl-ark-hiding
+      // the frame's origin is the floor under the stone's centre: vessels.js raises the ark by the stone's own height
+      if (hooks.vessel) vessel("ark-outline", part(KK, "ark", o), (x0 + x1) / 2, (y0 + y1) / 2, FL, "kodesh-kodashim");
     });
     // the ceilings: over the Holy and the Holy of Holies, with the lulin over the latter only (Middot 4:5)
     combos(["hk-kk-divider"]).forEach(o => {
@@ -1011,15 +1044,10 @@
     combos(["hk-roof-edge", "hk-kk-divider"]).forEach(o => edgeDetail(part(ROOF, "edge-house", o), houseEdges(o), o, { top: true }));
 
     /* ============ the vessels' places (the hooks) ============ */
+    // the menorah, the table and the golden altar stand in the Holy; the frame is the middle of its west end
     if (hooks.vessel){
-      const third = ewH / 3, mN = (xIs + AX) / 2, tN = (AX + xIn) / 2;
-      const at = { "inner-third": [yHi + third / 2, yHi + third / 2 + 4], "from-outer-third": [yH0 - third - 5, yH0 - third - 1] };
-      KL.place.forEach(v => {
-        const ph = part(HALL, "vessels", { "kl-vessels-place": v }), [yv, ya] = at[v];
-        vessel("menorah", ph, mN, yv, FL);              // south, on the left of one who enters (Rambam 1:7)
-        vessel("table", ph, tN, yv, FL);                // north
-        vessel("incense-altar", ph, AX, ya, FL);        // between them, drawn outwards (Rambam 3:17)
-      });
+      const ph = part(HALL, "vessels");
+      ["menorah", "table", "incense-altar"].forEach(k => vessel(k, ph, AX, yHi, FL, "heichal"));
     }
 
     /* ============ labels, click targets ============ */
@@ -1056,6 +1084,9 @@
       views: { interior: { center: W(AX, (yK0({}) + E) / 2, FL + 10), radius: C((E - yK0({})) / 2 + 8), dir: [.55, 1.1, .8] },
                facade: { center: W(AX, E - 20, 45), radius: C(70), dir: [.95, .42, .52] } },
       plan: { x: [xF0, xF1], y: [yW, E], axis: AX, east: E, floor: FL, top: TOP, roof: RF, aliyah: AF },
+      // the rooms' frames, plan cubits: where hooks.vessel places each room's vessels from
+      frames: { heichal: [AX, yHi], ulam: [AX, yUi] },
+      ledges: LEDGES,
       yWorld: Yw,
     };
     return root;
@@ -1070,7 +1101,9 @@
         SS("src", "״ועמדים אל האילים אחד מפה ואחד מפה״ (יחזקאל מ מט); מידתם מיכין ובועז, מלכים א ז טו–טז"),
         SS("src", "גפן של זהב על פתחו של היכל, כלונסות של ארז ושרשרות של זהב באולם (מידות ג ח); נברשת על פתחו של היכל (יומא ג י)"),
         SS("dec", "תקרת האולם בגובה תקרת העלייה, והכנפיים בגובה הבית: אין לכך מקור"),
-        SS("art", "פילסטרים, כרכובים, מסגרת הזהב של הפתח, מקום החלונות והתמרים, מספר הכלונסות והשרשרות")] },
+        SS("src", "״וכן סביב לכתלי האולם מלמטה עד למעלה... אמה אחת חלק ורבד שלש אמות... ורבד העליון היה רחבו ארבע אמות״ (רמב״ם ד ט)"),
+        SS("dec", "הרבדים כרצועות סכמטיות על פני האולם החיצוניים, כשהאפשרות ״רבדי כותלי האולם״ מציגה אותם: צורתם אינה נמסרת"),
+        SS("art", "פילסטרים, כרכובים, מסגרת הזהב של הפתח, מקום החלונות והתמרים, מספר הכלונסות והשרשרות, בליטת הרבדים")] },
     heichal: { kind: "היכל", name: "ההיכל (הקודש)",
       rows: [["חלל", "40 × 20, גובה 40 אמות"], ["פתח", "10 × 20, ארבע דלתות"], ["כתלים", "6 אמות"], ["רצפה", "6 אמות מעל העזרה, על האוטם"]],
       src: [SS("src", "״פתחו של היכל גבהו עשרים אמה ורחבו עשר אמות, וארבע דלתות היו לו״ (מידות ד א)"),

@@ -185,6 +185,9 @@ body.reading .quote blockquote{font-size:21px}
 .dims .val small{display:block;color:var(--muted);font-size:12px}
 .dims .src{color:var(--muted);overflow-wrap:anywhere}
 .note{font-size:14px;color:var(--muted)}
+.facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin:0;font-size:14px;line-height:1.5}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0}
 .opt-link{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px dashed var(--line);border-radius:var(--radius);font-size:14px;line-height:1.5}
 .link-btn{align-self:flex-start;border:0;background:transparent;padding:6px 0;color:var(--accent-text);text-decoration:underline;min-height:var(--tap)}
 
@@ -223,6 +226,18 @@ body.reading .quote blockquote{font-size:21px}
 .later .t{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-weight:700}
 .later p{font-size:14px;line-height:1.55}
 .later .soon-tag{font-weight:400}
+
+/* ---- the vessels' list (nav "הכלים"): choosing one flies the camera to it ---- */
+.v-place{display:flex;flex-direction:column;gap:8px}
+.v-place h3{color:var(--accent)}
+.v-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.v-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:var(--tap);padding:10px 14px;
+  border:1px solid var(--line);border-radius:var(--radius);background:transparent;color:var(--ink);text-align:start;font:inherit;cursor:pointer}
+.v-item:hover,.v-item:focus-visible{border-color:var(--accent);background:var(--chip)}
+.v-item[aria-current="true"]{border-color:var(--accent);background:var(--chip)}
+.v-item b{font-family:var(--display);font-size:18px;line-height:1.3}
+.v-item span{font-size:13px;color:var(--muted);line-height:1.45}
+.v-item .v-off{color:var(--accent-text)}
 
 /* ---- the footer strip ---- */
 .foot{position:fixed;bottom:var(--gap);left:calc(var(--panel-w) + 2 * var(--gap));right:calc(var(--layers-w) + 2 * var(--gap));z-index:9;
