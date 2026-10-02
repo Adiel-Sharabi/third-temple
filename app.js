@@ -31,7 +31,7 @@
   const RANK = ["explicit", "derived", "measured", "interpretive", "assumption", "unknown"];
   const CONF_HE = { explicit: "מפורש במקור", derived: "נגזר חשבונית", measured: "נמדד", interpretive: "פרשני",
     assumption: "הנחת עבודה", unknown: "לא ידוע" };
-  const TAG_HE = { src: "מקור", rec: "שחזור", dec: "החלטה", art: "עיצוב" };
+  const TAG_HE = { src: "מקור", rec: "שחזור", dec: "בחירת הדמיה", art: "עיצוב" };
   const WORK_HE = { middot: "משנה מידות", tamid: "משנה תמיד", yoma: "משנה יומא", sukkah: "משנה סוכה", bikkurim: "משנה ביכורים",
     menachot: "משנה מנחות", shekalim: "משנה שקלים", "rambam-bh": "רמב״ם, בית הבחירה", "rambam-klei": "רמב״ם, כלי המקדש",
     "rambam-temidin": "רמב״ם, תמידין ומוספין", "rambam-yom-kippur": "רמב״ם, עבודת יום הכפורים",
@@ -644,7 +644,7 @@
         return `<div class="ref">${title}${who ? ` <small>${esc(who)}</small>` : ""}<small>מצוטט כאן: ${cs.map(c => esc(c.label)).join("; ")}</small></div>`;
       }).join("")}</div>`);
     }
-    if (dec.length) out.push(`<div class="refs"><h3>החלטות והנחות של הפרויקט</h3>${dec.map(c => `<div class="ref"><small>${esc(c.label)}</small></div>`).join("")}</div>`);
+    if (dec.length) out.push(`<div class="refs"><h3>בחירות הדמיה והנחות של הפרויקט (אין להן מקור)</h3>${dec.map(c => `<div class="ref"><small>${esc(c.label)}</small></div>`).join("")}</div>`);
     return out.join("") || `<p class="note">לרכיב הזה אין מקורות רשומים.</p>`;
   }
 
@@ -657,7 +657,7 @@
     }).join("");
     const opts = optionsOf(u.id).map(o => {
       const c = o.choices.find(x => x.value === state.opts[o.key]) || {};
-      return `<div class="opt-link"><span>שאלה ${o.status === "open" ? "פתוחה" : "שהוכרעה"} ברכיב הזה: <b>${esc(o.question_he)}</b>. מוצג עכשיו: ${esc(c.name_he || "")}${c.value === o.default ? " (ברירת המחדל)" : ""}.</span>` +
+      return `<div class="opt-link"><span>שאלה פתוחה ברכיב הזה: <b>${esc(o.question_he)}</b>. מוצג עכשיו: ${esc(c.name_he || "")}${c.value === o.default ? " (מוצג בפתיחה)" : ""}.</span>` +
         `<button type="button" class="link-btn" data-open-opt="${esc(o.key)}">להשוואה ולהחלפה: שיטות ושאלות פתוחות</button></div>`;
     }).join("");
     return opts + `<div class="dims"><div class="row head"><span>מידה</span><span>ערך</span><span>מקור</span><span></span></div>${rows}</div>` +
@@ -706,15 +706,15 @@
     const M = D.methods, active = M.methods.find(m => m.status === "active"), others = M.methods.filter(m => m !== active);
     const changed = M.options.some(o => state.opts[o.key] !== o.default);
     const opt = o => `<div class="opt" data-opt="${esc(o.key)}">
-        <div class="opt-q"><b>${esc(o.question_he)}${o.issue ? ` <small>(סוגיה ${o.issue})</small>` : ""}</b><span class="st ${esc(o.status)}">${o.status === "open" ? "פתוח" : "הוכרע"}</span></div>
+        <div class="opt-q"><b>${esc(o.question_he)}${o.issue ? ` <small>(סוגיה ${o.issue})</small>` : ""}</b><span class="st open">פתוח</span></div>
         <p class="opt-bg">${esc(o.background_he)}</p>
         <div class="choices" role="group" aria-label="${esc(o.question_he)}">${o.choices.map(c => {
           const on = state.opts[o.key] === c.value;
           return `<div class="choice${on ? " on" : ""}"><button type="button" class="choice-btn" data-k="${esc(o.key)}" data-v="${esc(c.value)}" aria-pressed="${on}">` +
-            `<span class="radio" aria-hidden="true"></span><span>${esc(c.name_he)}</span>${c.value === o.default ? '<span class="badge">ברירת המחדל</span>' : ""}</button>` +
+            `<span class="radio" aria-hidden="true"></span><span>${esc(c.name_he)}</span>${c.value === o.default ? '<span class="badge">מוצג בפתיחה</span>' : ""}</button>` +
             `<p>${esc(c.text_he)}</p>${citesHTML(c.citations)}${miniDims(c.dims)}</div>`;
         }).join("")}</div>
-        <p class="opt-decided">${esc(o.decided_he)}</p>
+        <p class="opt-shown">${esc(o.shown_he)}</p>
       </div>`;
     $("methods-body").innerHTML = `
       <div class="m-card"><h3>השיטה המוצגת</h3><b>${esc(active.name_he)}</b><p>${esc(active.text_he)}</p>${citesHTML(active.citations)}</div>

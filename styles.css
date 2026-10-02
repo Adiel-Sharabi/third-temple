@@ -202,7 +202,6 @@ body.reading .quote blockquote{font-size:21px}
 .opt-q b{font-family:var(--display);font-size:19px;line-height:1.3}
 .st{flex:none;font-size:12px;padding:1px 8px;border-radius:var(--pill);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
 .st.open{border-color:var(--c-interp);color:var(--ink)}
-.st.decided{border-color:var(--c-explicit);color:var(--ink)}
 .opt-bg{font-size:14px;color:var(--muted)}
 .choices{display:flex;flex-direction:column;gap:8px}
 .choice{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius)}
@@ -216,7 +215,7 @@ body.reading .quote blockquote{font-size:21px}
 .mini-dims div{display:contents}
 .mini-dims .dot{align-self:center}
 .mini-dims .v{font-family:var(--mono);color:var(--ink);white-space:nowrap}
-.opt-decided{font-size:13px;color:var(--muted)}
+.opt-shown{font-size:13px;color:var(--muted)}
 .reset{align-self:flex-start;border:1px solid var(--line);background:transparent;border-radius:var(--pill);padding:6px 14px;min-height:var(--tap);font-size:14px}
 .later{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
 .later li{display:flex;flex-direction:column;gap:4px;padding-bottom:12px;border-bottom:1px solid var(--line)}
